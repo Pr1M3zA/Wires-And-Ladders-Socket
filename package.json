@@ -1,5 +1,5 @@
 {
-  "name": "WiresAndLaddersSocket",
+  "name": "wiresandladderssocket",
   "version": "1.0.0",
   "description": "Wire and Ladders Socket Server (Socket.IO)",
   "license": "ISC",
