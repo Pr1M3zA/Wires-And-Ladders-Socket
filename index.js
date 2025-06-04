@@ -162,6 +162,7 @@ io.on('connection', (socket) => {
 
 });
 
+app.get("/", (req, res) => res.send("MyAPI"));
 
 server.listen(SOCKET_PORT , () => {
   console.log(`Servidor Socket.IO escuchando en el puerto ${SOCKET_PORT}`);
