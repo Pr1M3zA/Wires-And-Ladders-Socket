@@ -13,7 +13,7 @@ const SOCKET_PORT = 3001;
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // En producción, especifica los orígenes permitidos. Ej: "http://localhost:8081" o tu URL de Expo Go
+    origin: "*", 
     methods: ["GET", "POST"]
   },
   transports: ['websocket'],
@@ -26,8 +26,6 @@ io.on('connection', (socket) => {
   const { dbUserId, userName } = socket.handshake.query; // Obtener info del usuario
   console.log(`Usuario conectado: ${userName} (dbID: ${dbUserId}, socketID: ${socket.id})`);
 
-  // (Opcional) Aquí podrías validar el token si es necesario para la conexión al socket
-
   socket.on('createRoom', ({ roomCode, user }) => {
     if (!roomCode || !user || !user.id || !user.userName) {
       console.log(`RoomCode: ${roomCode}, User: ${JSON.stringify(user)}`)
@@ -38,20 +36,19 @@ io.on('connection', (socket) => {
       socket.emit('createRoomError', { message: 'Este código de sala ya está en uso. Intenta con otro.' });
       return;
     }
-
+    const creatorUser = {socketId: socket.id, dbUserId: user.id, userName: user.userName}
     rooms[roomCode] = {
-      users: [{ socketId: socket.id, dbUserId: user.id, userName: user.userName }],
+      users: [creatorUser],
       creatorSocketId: socket.id,
       maxUsers: MAX_USERS_PER_ROOM,
+      nextGuestId: -1,
     };
     socket.join(roomCode);
-    console.log(`Usuario ${user.userName} creó la sala: ${roomCode}`);
     socket.emit('roomCreated', { roomCode, users: rooms[roomCode].users, isCreator: true });
-    // No es necesario emitir groupUpdate aquí ya que roomCreated ya envía la lista de usuarios al creador.
   });
 
   socket.on('joinRoom', ({ roomCode, user }) => {
-    if (!roomCode || !user || !user.id || !user.userName) {
+    if (!roomCode || !user) {
       socket.emit('joinError', { message: 'Datos incompletos para unirse a la sala.' });
       return;
     }
@@ -64,10 +61,16 @@ io.on('connection', (socket) => {
       socket.emit('roomFull', { message: 'La sala está llena.' });
       return;
     }
+
+    if (user.id < 1) {
+      user.id = room.nextGuestId; // Asignar ID de invitado secuencial negativo
+      user.userName = `guest${user.id}`; // Asignar nombre de invitado
+      room.nextGuestId--; // Decrementar para el próximo invitado
+    } 
+
     // Evitar que un usuario se una dos veces con el mismo dbUserId (si es una restricción deseada)
     if (room.users.some(u => u.dbUserId === user.id)) {
       socket.emit('joinError', { message: 'Ya estás en esta sala.' });
-      // Podrías manejar la reconexión aquí si el socketId es diferente.
       return;
     }
 
@@ -137,11 +140,6 @@ io.on('connection', (socket) => {
   socket.on('joinBoardGameRoom', ({ roomCode }) => {
     if (rooms[roomCode]) {
       socket.join(roomCode); // El socket se une a la sala del juego
-      console.log(`Socket ${socket.id} (${userName}) se unió a la sala de juego: ${roomCode}`);
-      // Opcional: Si quieres enviar el estado actual del juego a alguien que se reconecta o une tarde
-      // if (rooms[roomCode].gameState) {
-      //   socket.emit('initialGameState', rooms[roomCode].gameState);
-      // }
     } else {
       console.warn(`Intento de unirse a sala de juego inexistente: ${roomCode} por socket ${socket.id}`);
       socket.emit('errorJoiningGameRoom', { message: 'La sala de juego no existe.' });
@@ -156,13 +154,12 @@ io.on('connection', (socket) => {
       console.log("gamers state: ", gameState.playersState.map(p => p.userName + ' ' + p.currentTile + ' ' + p.targetTile).join(', '));
       // Retransmitir el estado del juego a todos los demás en la sala, excepto al remitente original
       socket.to(roomCode).emit('gameStateUpdated', gameState);
-      // console.log(`Estado del juego transmitido para la sala ${roomCode} por ${socket.id}`);
     }
   });
 
 });
 
-app.get("/", (req, res) => res.send("MyAPI"));
+app.get("/", (req, res) => res.send("MyAPI - Socket.IO - (v1.7)"));
 
 server.listen(SOCKET_PORT , () => {
   console.log(`Servidor Socket.IO escuchando en el puerto ${SOCKET_PORT}`);
