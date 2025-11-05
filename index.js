@@ -26,7 +26,7 @@ io.on('connection', (socket) => {
   const { dbUserId, userName } = socket.handshake.query; // Obtener info del usuario
   console.log(`Usuario conectado: ${userName} (dbID: ${dbUserId}, socketID: ${socket.id})`);
 
-  socket.on('createRoom', ({ roomCode, user }) => {
+  socket.on('createRoom', ({ roomCode, user, idBoardGame }) => {
     if (!roomCode || !user || !user.id || !user.userName) {
       console.log(`RoomCode: ${roomCode}, User: ${JSON.stringify(user)}`)
       socket.emit('createRoomError', { message: 'Datos incompletos para crear la sala.' });
@@ -42,6 +42,7 @@ io.on('connection', (socket) => {
       creatorSocketId: socket.id,
       maxUsers: MAX_USERS_PER_ROOM,
       nextGuestId: -1,
+      idBoard: idBoardGame
     };
     socket.join(roomCode);
     socket.emit('roomCreated', { roomCode, users: rooms[roomCode].users, isCreator: true });
@@ -79,23 +80,31 @@ io.on('connection', (socket) => {
     console.log(`Usuario ${user.userName} se unió a la sala: ${roomCode}`);
 
     // Notificar al usuario que se unió
-    socket.emit('joinedRoom', { roomCode, users: room.users });
+    socket.emit('joinedRoom', { roomCode, users: room.users});
     // Notificar a todos en la sala (incluido el nuevo) sobre la actualización del grupo
-    io.to(roomCode).emit('groupUpdate', { users: room.users });
+    io.to(roomCode).emit('groupUpdate', { users: room.users, idBoard: room.idBoard });
   });
+
+  socket.on('setBoard', ({ roomCode, idBoard }) => {
+    const room = rooms[roomCode];
+    if (room) {
+      room.idBoard = idBoard; 
+      io.to(roomCode).emit('groupUpdate', { users: room.users, idBoard: room.idBoard });
+    }
+  })
+
 
   socket.on('startGame', ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room && room.creatorSocketId === socket.id) {
       if (room.users.length < 2) { // O tu mínimo de jugadores
-        socket.emit('startGameError', { message: 'No hay suficientes jugadores para iniciar.' }); // Podrías manejar esto en el cliente también
+        socket.emit('startGameError', { message: 'No hay suficientes jugadores para iniciar.' }); 
         return;
       }
       console.log(`Iniciando juego en la sala: ${roomCode}`);
       const gameId = `game_${roomCode}_${Date.now()}`; // Un ID de juego simple
-      room.gameId = gameId; // Podrías almacenar el ID del juego en la sala
+      room.gameId = gameId; 
       io.to(roomCode).emit('gameStarting', { gameId });
-      // Aquí podrías tener lógica adicional, como guardar el estado del juego en una BD.
     } else {
       socket.emit('startGameError', { message: 'No autorizado o la sala no existe.' });
     }
@@ -130,7 +139,7 @@ io.on('connection', (socket) => {
           delete rooms[roomCode];
         } else {
           // Notificar a los demás usuarios en la sala sobre la actualización
-          io.to(roomCode).emit('groupUpdate', { users: room.users });
+          io.to(roomCode).emit('groupUpdate', { users: room.users, idBoard: room.idBoard});
         }
         break; // Salir del bucle una vez que se encuentra y procesa la sala
       }
@@ -140,6 +149,11 @@ io.on('connection', (socket) => {
   socket.on('joinBoardGameRoom', ({ roomCode }) => {
     if (rooms[roomCode]) {
       socket.join(roomCode); // El socket se une a la sala del juego
+      console.log(`Socket ${socket.id} (${userName}) se unió a la sala de juego: ${roomCode}`);
+      // Opcional: Si quieres enviar el estado actual del juego a alguien que se reconecta o une tarde
+      // if (rooms[roomCode].gameState) {
+      //   socket.emit('initialGameState', rooms[roomCode].gameState);
+      // }
     } else {
       console.warn(`Intento de unirse a sala de juego inexistente: ${roomCode} por socket ${socket.id}`);
       socket.emit('errorJoiningGameRoom', { message: 'La sala de juego no existe.' });
@@ -154,6 +168,7 @@ io.on('connection', (socket) => {
       console.log("gamers state: ", gameState.playersState.map(p => p.userName + ' ' + p.currentTile + ' ' + p.targetTile).join(', '));
       // Retransmitir el estado del juego a todos los demás en la sala, excepto al remitente original
       socket.to(roomCode).emit('gameStateUpdated', gameState);
+      // console.log(`Estado del juego transmitido para la sala ${roomCode} por ${socket.id}`);
     }
   });
 
